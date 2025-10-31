@@ -3,14 +3,6 @@
 Este proyecto es un aplicativo web diseñado para automatizar el registro de asistencia utilizando reconocimiento facial.  
 El sistema se basa en el uso de la librería OpenCV para el procesamiento de imágenes y el entrenamiento de modelos de reconocimiento facial mediante el algoritmo **LBPH (Local Binary Patterns Histograms)**.  
 Posteriormente, el modelo se integra en una aplicación web desarrollada en Python, permitiendo identificar a los usuarios en tiempo real y registrar su asistencia automáticamente.
-
----
-
-## Descripción general
-
-El sistema de registro de asistencia con reconocimiento facial tiene como objetivo reducir la intervención manual en los procesos de control de presencia.  
-A través de una cámara web, el sistema detecta y reconoce los rostros de los usuarios, comparándolos con un modelo previamente entrenado.  
-Cuando se identifica una coincidencia, el sistema registra la asistencia de la persona junto con la fecha y hora del reconocimiento.
 ---
 
 ## Características principales
@@ -32,10 +24,10 @@ Cuando se identifica una coincidencia, el sistema registra la asistencia de la p
 **Pasos de instalación y configuración:**  
 
 1. **Clonar el repositorio del proyecto:**  
-   ```bash
-   git clone https://github.com/tu-usuario/registro-asistencia-facial.git
-   cd registro-asistencia-facial
-   ```
+  ```bash
+  git clone https://github.com/tu-usuario/registro-asistencia-facial.git
+  cd registro-asistencia-facial
+  ```
 2. **Instalar dependencias**
   ```bash
   pip install -r requeriments.txt
