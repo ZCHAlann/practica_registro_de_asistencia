@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Detección de Rostros Automática</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="csrf-token" content="{{ csrf_token }}" />
+
+    <link
+      rel="preload"
+      as="script"
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_full.binarypb"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_full_range.tflite"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_full_range_sparse.tflite"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_short.binarypb"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_short_range.tflite"
+    />
+    <link
+      rel="preload"
+      as="script"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_solution_simd_wasm_bin.js"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_solution_simd_wasm_bin.wasm"
+    />
+    <link
+      rel="preload"
+      as="script"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_solution_wasm_bin.js"
+    />
+    <link
+      rel="preload"
+      as="fetch"
+      crossorigin
+      href="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection_solution_wasm_bin.wasm"
+    />
+
+    <!-- === CARGA ORDENADA DE LIBRERÍAS === -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+    ></script>
+
+    <style>
+      .flip-horizontal {
+        transform: scaleX(-1);
+      }
+      .stack {
+        position: relative;
+      }
+      .stack > * {
+        position: absolute;
+        inset: 0;
+      }
+      .stack > video {
+        object-fit: cover;
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen p-5 md:p-10 bg-gray-300">
+    <div class="max-w-4xl mx-auto space-y-8">
+      <!-- Sección de cámara -->
+      <div
+        id="cam-wrap"
+        class="w-full rounded-2xl overflow-hidden shadow-2xl border-4 border-white/20 bg-black mx-auto"
+        style="max-height: 70vh; aspect-ratio: 16/9; min-height: 320px"
+      >
+        <div class="stack w-full h-full">
+          <video
+            id="video"
+            autoplay
+            playsinline
+            muted
+            class="w-full h-full flip-horizontal"
+          ></video>
+          <canvas
+            id="overlay"
+            class="w-full h-full pointer-events-none flip-horizontal"
+          ></canvas>
+        </div>
+      </div>
+
+      <!-- Tabla de detecciones -->
+      <div class="w-full overflow-hidden rounded-2xl shadow-2xl">
+        <table class="w-full bg-white">
+          <thead class="bg-blue-500 text-white">
+            <tr>
+              <th
+                class="px-6 py-5 text-left text-sm font-bold uppercase tracking-wider"
+              >
+                Nombre
+              </th>
+              <th
+                class="px-6 py-5 text-left text-sm font-bold uppercase tracking-wider"
+              >
+                Fecha
+              </th>
+              <th
+                class="px-6 py-5 text-left text-sm font-bold uppercase tracking-wider"
+              >
+                Hora
+              </th>
+            </tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+
+      <canvas id="capture" class="hidden"></canvas>
+    </div>
+
+    <script>
+      function init() {
+        if (!window.FaceDetection || !window.Camera) {
+          console.error("❌ MediaPipe FaceDetection no está disponible aún.");
+          return;
+        }
+
+        const video = document.getElementById("video");
+        const overlay = document.getElementById("overlay");
+        const octx = overlay.getContext("2d");
+        const capture = document.getElementById("capture");
+        const cctx = capture.getContext("2d");
+        const tbody = document.getElementById("tbody");
+
+        let lastSentBox = null,
+          lastSentAt = 0,
+          sending = false;
+
+        const getCsrfToken = () =>
+          document
+            .querySelector('meta[name="csrf-token"]')
+            .getAttribute("content");
+        const now = () => Date.now();
+
+        const iou = (a, b) => {
+          if (!a || !b) return 0;
+          const xA = Math.max(a.x, b.x),
+            yA = Math.max(a.y, b.y);
+          const xB = Math.min(a.x + a.w, b.x + b.w),
+            yB = Math.min(a.y + a.h, b.y + b.h);
+          const interW = Math.max(0, xB - xA),
+            interH = Math.max(0, yB - yA);
+          const inter = interW * interH,
+            areaA = a.w * a.h,
+            areaB = b.w * b.h;
+          return inter === 0 ? 0 : inter / (areaA + areaB - inter);
+        };
+
+        const drawBox = (x, y, w, h) => {
+          octx.clearRect(0, 0, overlay.width, overlay.height);
+          octx.lineWidth = 4;
+          octx.strokeStyle = "#22c55e";
+          octx.strokeRect(x, y, w, h);
+        };
+
+        const resizeOverlay = () => {
+          const r = video.getBoundingClientRect();
+          overlay.width = Math.max(1, Math.floor(r.width));
+          overlay.height = Math.max(1, Math.floor(r.height));
+        };
+
+        const captureFrame = () => {
+          capture.width = video.videoWidth;
+          capture.height = video.videoHeight;
+          cctx.save();
+          cctx.translate(capture.width, 0);
+          cctx.scale(-1, 1);
+          cctx.drawImage(video, 0, 0, capture.width, capture.height);
+          cctx.restore();
+          return capture.toDataURL("image/png");
+        };
+
+        const addRow = (name) => {
+          const tr = document.createElement("tr");
+          tr.className =
+            "hover:bg-indigo-50 hover:scale-[1.01] transition-all duration-200 even:bg-gray-50";
+          const td1 = document.createElement("td");
+          td1.className = "px-6 py-4 text-gray-800 font-medium";
+          td1.textContent = name || "—";
+          const td2 = document.createElement("td");
+          td2.className = "px-6 py-4 text-gray-600";
+          td2.textContent = new Date().toISOString().split("T")[0];
+          const td3 = document.createElement("td");
+          td3.className = "px-6 py-4 text-gray-600";
+          td3.textContent = new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          tr.append(td1, td2, td3);
+          tbody.appendChild(tr);
+        };
+
+        const sendImageToServer = async (dataUrl) => {
+          const csrf = getCsrfToken();
+          const res = await fetch("http://127.0.0.1:8000/detect", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrf,
+            },
+            body: JSON.stringify({ image: dataUrl }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            addRow(data.Prediccion);
+          } else {
+            console.warn("⚠️ Error al enviar imagen:", await res.text());
+          }
+        };
+
+        const fd = new FaceDetection({
+          locateFile: (f) =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`,
+        });
+        fd.setOptions({ model: "short", minDetectionConfidence: 0.6 });
+
+        fd.onResults((results) => {
+          if (!video.videoWidth || !video.videoHeight) return;
+          const vw = video.videoWidth,
+            vh = video.videoHeight;
+          const ow = overlay.width,
+            oh = overlay.height;
+          octx.clearRect(0, 0, ow, oh);
+
+          const dets = results.detections || [];
+          if (dets.length === 0) return;
+
+          const bbox = dets[0].boundingBox;
+          const boxCanvas = {
+            x: bbox.xMin * ow,
+            y: bbox.yMin * oh,
+            w: bbox.width * ow,
+            h: bbox.height * oh,
+          };
+          drawBox(boxCanvas.x, boxCanvas.y, boxCanvas.w, boxCanvas.h);
+
+          const boxVideo = {
+            x: bbox.xMin * vw,
+            y: bbox.yMin * vh,
+            w: bbox.width * vw,
+            h: bbox.height * vh,
+          };
+
+          const cooldown = 8000;
+          const sim = iou(boxVideo, lastSentBox);
+
+          if (!sending && (sim < 0.6 || now() - lastSentAt > cooldown)) {
+            sending = true;
+            const dataUrl = captureFrame();
+            sendImageToServer(dataUrl).finally(() => {
+              lastSentBox = boxVideo;
+              lastSentAt = now();
+              sending = false;
+            });
+          }
+        });
+
+        (async () => {
+          try {
+            video.muted = true;
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: false,
+            });
+            video.srcObject = stream;
+            await new Promise((r) => (video.onloadedmetadata = r));
+            resizeOverlay();
+            const camera = new Camera(video, {
+              onFrame: async () => {
+                await fd.send({ image: video });
+              },
+              width: 1280,
+              height: 720,
+            });
+            camera.start();
+            window.addEventListener("resize", resizeOverlay);
+            console.log("Cámara iniciada correctamente");
+          } catch (e) {
+            console.error("No se pudo abrir la cámara:", e);
+            alert(
+              "No se pudo acceder a la cámara. Verifica permisos o usa HTTPS/localhost."
+            );
+          }
+        })();
+      }
+
+      window.addEventListener("DOMContentLoaded", init);
+    </script>
+  </body>
+</html>
