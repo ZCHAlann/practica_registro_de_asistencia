@@ -1,7 +1,7 @@
 # Sistema de Registro de Asistencia con Reconocimiento Facial
 ---
 
-#### Este proyecto es un aplicativo web diseñado para automatizar el registro de asistencia utilizando reconocimiento facial.  
+Este proyecto es un aplicativo web diseñado para automatizar el registro de asistencia utilizando reconocimiento facial.  
 El sistema se basa en el uso de la librería OpenCV para el procesamiento de imágenes y el entrenamiento de modelos de reconocimiento facial mediante el algoritmo **LBPH (Local Binary Patterns Histograms)**.  
 Posteriormente, el modelo se integra en una aplicación web desarrollada en Python, permitiendo identificar a los usuarios en tiempo real y registrar su asistencia automáticamente.
 ---
